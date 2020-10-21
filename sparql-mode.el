@@ -57,7 +57,7 @@
   :group 'languages)
 
 (defcustom sparql-indent-offset 2
-  "*Indentation offset for `sparql-mode'."
+  "*Indentation offset for `stardog-sparql-mode'."
   :group 'sparql
   :type 'integer)
 
@@ -191,17 +191,42 @@ sparql endpoints expect that."
           (sparql-handle-results nil result-buffer))
       (url-retrieve url #'sparql-handle-results (list result-buffer)))))
 
+(defun sparql--get-region-query ()
+  "Get the query in the region (or entire buffer if not region"
+  (let* ((beg (if (region-active-p) (region-beginning) (point-min)))
+         (end (if (region-active-p) (region-end) (point-max)))
+         (query (buffer-substring-no-properties beg end)))
+    query))
+
 (defun sparql-query-region (&optional synch)
   "Submit the active region as a query to a SPARQL HTTP endpoint.
 If the region is not active, use the whole buffer.  If a prefix
 argument is given the command is run synchronously instead of
 asynchronously."
   (interactive "P")
-  (let* ((beg (if (region-active-p) (region-beginning) (point-min)))
-         (end (if (region-active-p) (region-end) (point-max)))
-         (query (buffer-substring-no-properties beg end))
+  (let ((query (sparql--get-region-query))
          (url (sparql-get-base-url))
          (format (sparql-get-format)))
+    (unless (and sparql-results-buffer
+                 (buffer-live-p sparql-results-buffer))
+      (setq sparql-results-buffer (get-buffer-create
+                                   (format "*SPARQL: %s*" (buffer-name))))
+      (with-current-buffer sparql-results-buffer
+        (fundamental-mode)
+        (sparql-result-mode)))
+    (with-current-buffer sparql-results-buffer
+      (let ((buffer-read-only nil))
+        (delete-region (point-min) (point-max))
+        (sparql-execute-query query url format synch)))
+    (view-buffer-other-window sparql-results-buffer)
+    (other-window -1)))
+
+(defun sparql-explain-region (&optional synch)
+  "Explain the query"
+  (interactive "P")
+  (let ((query (sparql--get-region-query))
+         (url (replace-regexp-in-string "/query" "/explain" (sparql-get-base-url)))
+         (format "text/plain"))
     (unless (and sparql-results-buffer
                  (buffer-live-p sparql-results-buffer))
       (setq sparql-results-buffer (get-buffer-create
@@ -211,7 +236,7 @@ asynchronously."
     (with-current-buffer sparql-results-buffer
       (let ((buffer-read-only nil))
         (delete-region (point-min) (point-max))
-        (sparql-execute-query query url format synch)))
+        (sparql-execute-query query url format t)))
     (view-buffer-other-window sparql-results-buffer)
     (other-window -1)))
 
@@ -282,7 +307,7 @@ asynchronously."
     ("[$?]\\w+" 0 font-lock-variable-name-face)
     ,(concat "\\b" (regexp-opt sparql--keywords) "\\b")))
 
-(defvar sparql-mode-syntax-table
+(defvar stardog-sparql-mode-syntax-table
   (let ((syntax-table (make-syntax-table)))
     ;; Let `?` and `_` be part of a word so that a variable will be
     ;; interpreted as a word.
@@ -298,7 +323,7 @@ asynchronously."
     (modify-syntax-entry ?\n ">" syntax-table)
     ;; See `sparql-syntax-propertize-function' for comment beginnings.
     syntax-table)
-  "Syntax table for SPARQL-mode.")
+  "Syntax table for Stardog SPARQL-mode.")
 
 (defvar sparql-syntax-propertize-function
   (syntax-propertize-rules
@@ -306,29 +331,30 @@ asynchronously."
    ("#"       (0 "<")))
   "We define a `syntax-propertize-function' that skips URLs
 because they can contain a #, but then adds the comment text
-property for all other #.  See `sparql-mode-syntax-table' for the
+property for all other #.  See `stardog-sparql-mode-syntax-table' for the
 definition of end of comment.")
 
-(defvar sparql-mode-map
+(defvar stardog-sparql-mode-map 
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-c") 'sparql-query-region)
+    (define-key map (kbd "C-c C-e") 'sparql-explain-region)
     (define-key map (kbd "C-c C-u") 'sparql-set-base-url)
     (define-key map (kbd "C-c C-f") 'sparql-set-format)
     map)
-  "Keymap for `sparql-mode'.")
+  "Keymap for `stardog-sparql-mode'.")
 
 (defvar ac-source-sparql-mode
   `((candidates . ,sparql--keywords)))
 
-(define-derived-mode sparql-result-mode read-only-mode "SPARQL[waiting]"
+(define-derived-mode stardog-sparql-result-mode read-only-mode "SPARQL[waiting]"
   "Major mode to hold the result from the SPARQL-queries."
-  :group 'sparql-result-mode)
+  :group 'stardog-sparql-result-mode)
 
 ;;;###autoload
-(define-derived-mode sparql-mode prog-mode "SPARQL"
-  "Major mode for SPARQL-queries.
-\\{sparql-mode-map}"
-  :group 'sparql-mode
+(define-derived-mode stardog-sparql-mode prog-mode "STARDOG"
+  "Major mode for Stardog SPARQL-queries.
+\\{stardog-sparql-mode-map}"
+  :group 'stardog-sparql-mode
   ;; Comments
   (setq-local comment-start "# ")
   ;; Indentation
@@ -341,6 +367,6 @@ definition of end of comment.")
           ))
   (setq-local syntax-propertize-function sparql-syntax-propertize-function))
 
-(provide 'sparql-mode)
+(provide 'stardog-sparql-mode)
 
 ;;; sparql-mode.el ends here
